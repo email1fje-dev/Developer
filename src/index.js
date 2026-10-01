@@ -346,13 +346,13 @@ async function setupGuild(guild, mode = "full") {
     }
   }
 
-  const info = await getOrCreateCategory(guild, "📌 INFORMATION");
-  const orders = await getOrCreateCategory(guild, "🛒 ORDERS");
-  const community = await getOrCreateCategory(guild, "🌐 COMMUNITY");
-  const support = await getOrCreateCategory(guild, "🎫 SUPPORT");
-  const staffCat = await getOrCreateCategory(guild, "🔒 STAFF");
-  const development = await getOrCreateCategory(guild, "💻 DEVELOPMENT");
-  const resources = await getOrCreateCategory(guild, "📚 RESOURCES");
+  const info = await getOrCreateCategory(guild, "INFORMATION");
+  const orders = await getOrCreateCategory(guild, "ORDERS");
+  const community = await getOrCreateCategory(guild, "COMMUNITY");
+  const support = await getOrCreateCategory(guild, "SUPPORT");
+  const staffCat = await getOrCreateCategory(guild, "STAFF");
+  const development = await getOrCreateCategory(guild, "DEVELOPMENT");
+  const resources = await getOrCreateCategory(guild, "RESOURCES");
 
   const staffOnly = [
     { id: everyone.id, deny: [PermissionFlagsBits.ViewChannel] },
@@ -485,6 +485,45 @@ async function setupGuild(guild, mode = "full") {
 
   for (const [name, embed] of Object.entries(staticPanels)) {
     await sendOrReplacePanel(channels[name], "BOTFORGE_" + name.toUpperCase() + "_PANEL", embed);
+  }
+
+  const extraPanels = {
+    about: ["🏪 About BotForge", "Custom Discord bots built to order. We turn your requirements into a tailored bot and provide an estimated Robux price."],
+    "how-to-order": ["🛒 How to Order", "1. Open **#order**\n2. Describe what your bot should do\n3. Review the AI feature estimate\n4. Staff reviews the order\n5. Pay the agreed Robux amount to **" + ROBLOX_USERNAME + "**"],
+    payments: ["💸 Payment Information", "Payments are made in **Robux**. The current payment account is **" + ROBLOX_USERNAME + "**. Never send payment to an account posted outside an official BotForge order ticket."],
+    "order-queue": ["⏳ Order Queue", "Orders are processed through private tickets. Staff will claim and update each order from its ticket."],
+    "completed-orders": ["✅ Completed Orders", "Completed customer projects can be showcased here after delivery."],
+    "order-feedback": ["⭐ Order Feedback", "After your order is completed, you can leave feedback here."],
+    polls: ["📊 Polls", "Community polls and BotForge decisions will be posted here."],
+    events: ["🎉 Events", "BotForge events, contests, and community activities will be announced here."],
+    partnerships: ["🤝 Partnerships", "Partnership and collaboration requests can be discussed here."],
+    "off-topic": ["🗯️ Off Topic", "Chat about anything that isn't directly related to orders or development."],
+    "technical-help": ["🔧 Technical Help", "General technical questions about Discord bots and delivered projects."],
+    "billing-help": ["💳 Billing Help", "Questions about Robux estimates, payments, and order billing."],
+    "client-help": ["🙋 Client Help", "General help for existing BotForge customers."],
+    downloads: ["📥 Downloads", "Approved BotForge files and customer resources can be shared here."],
+    templates: ["📄 Templates", "Useful Discord bot templates and starter resources."],
+    documentation: ["📚 Documentation", "Guides and documentation for BotForge projects."],
+    examples: ["🧩 Examples", "Examples of supported bot features and implementations."],
+    portfolio: ["🖥️ Portfolio", "Showcase of BotForge projects and completed work."],
+    "staff-announcements": ["📢 Staff Announcements", "Private announcements for the BotForge team."],
+    "staff-tasks": ["📝 Staff Tasks", "Internal tasks and work assignments."],
+    "staff-reviews": ["🔎 Staff Reviews", "Internal review area for orders and delivered projects."],
+    "dev-chat": ["💻 Developer Chat", "Private development discussion for the BotForge team."],
+    "feature-lab": ["🧪 Feature Lab", "Experiment with new bot features and ideas."],
+    "code-review": ["🔍 Code Review", "Internal code review and implementation discussion."],
+    "api-lab": ["🔌 API Lab", "API integration experiments and technical notes."],
+    "release-notes": ["🚀 Release Notes", "BotForge bot and shop updates."]
+  };
+
+  for (const [name, [title, description]] of Object.entries(extraPanels)) {
+    if (channels[name]) {
+      await sendOrReplacePanel(
+        channels[name],
+        "BOTFORGE_" + name.toUpperCase() + "_PANEL",
+        panelEmbed(title, description)
+      );
+    }
   }
 
   await refreshDashboard(guild);
