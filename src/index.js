@@ -76,7 +76,7 @@ function cleanName(value) {
   return value.toLowerCase().replace(/[^a-z0-9-]/g, "-").replace(/-+/g, "-").slice(0, 80);
 }
 
-async function getOrCreateRole(guild, name, permissions = []) {
+async function getOrCreateRole(guild, name, permissions = [], repair = false) {
   let role = guild.roles.cache.find(r => r.name === name);
   if (!role) {
     role = await guild.roles.create({
@@ -84,6 +84,8 @@ async function getOrCreateRole(guild, name, permissions = []) {
       permissions,
       reason: `${SHOP} setup`
     });
+  } else if (repair && permissions.length) {
+    await role.setPermissions(permissions, `${SHOP} repair`);
   }
   return role;
 }
@@ -102,10 +104,17 @@ async function getOrCreateCategory(guild, name) {
   return category;
 }
 
-async function getOrCreateTextChannel(guild, name, parent, overwrites = []) {
+async function getOrCreateTextChannel(guild, name, parent, overwrites = [], repair = false) {
   let channel = guild.channels.cache.find(
     c => c.type === ChannelType.GuildText && c.name === name && c.parentId === parent.id
   );
+
+  if (!channel && repair) {
+    channel = guild.channels.cache.find(
+      c => c.type === ChannelType.GuildText && c.name === name
+    );
+  }
+
   if (!channel) {
     channel = await guild.channels.create({
       name,
@@ -114,33 +123,55 @@ async function getOrCreateTextChannel(guild, name, parent, overwrites = []) {
       permissionOverwrites: overwrites,
       reason: `${SHOP} setup`
     });
+  } else if (repair) {
+    if (channel.parentId !== parent.id) {
+      await channel.setParent(parent.id, { lockPermissions: false, reason: `${SHOP} repair` });
+    }
+    if (overwrites.length) {
+      await channel.permissionOverwrites.set(overwrites, `${SHOP} repair`);
+    }
   }
+
   return channel;
 }
 
-function panelEmbed(title, description) {
-  return new EmbedBuilder()
+function panelEmbed(title, description, color = null) {
+  const embed = new EmbedBuilder()
     .setTitle(title)
     .setDescription(description)
-    .setFooter({ text: SHOP })
+    .setFooter({ text: `${SHOP} • Custom Discord Bots` })
     .setTimestamp();
+
+  if (client.user) {
+    embed.setThumbnail(client.user.displayAvatarURL({ extension: "png", size: 256 }));
+  }
+  if (color) embed.setColor(color);
+
+  return embed;
 }
 
 async function sendOrReplacePanel(channel, marker, embed, components = []) {
-  const messages = await channel.messages.fetch({ limit: 30 });
-  const existing = messages.find(m => m.author.id === client.user.id && m.content === marker);
+  const messages = await channel.messages.fetch({ limit: 50 });
+  const existing = messages.find(
+    m =>
+      m.author.id === client.user.id &&
+      (m.content === marker || m.embeds?.[0]?.title === embed.data.title)
+  );
+
   if (existing) {
-    await existing.edit({ content: marker, embeds: [embed], components });
+    await existing.edit({ content: "", embeds: [embed], components });
     return existing;
   }
-  return channel.send({ content: marker, embeds: [embed], components });
+
+  return channel.send({ content: "", embeds: [embed], components });
 }
 
-async function setupGuild(guild) {
+async function setupGuild(guild, mode = "full") {
+  const repair = mode === "repair";
   const everyone = guild.roles.everyone;
-  const staff = await getOrCreateRole(guild, STAFF_ROLE_NAME, [PermissionFlagsBits.ManageChannels]);
-  const customer = await getOrCreateRole(guild, "Customer");
-  const developer = await getOrCreateRole(guild, "Developer", [PermissionFlagsBits.ManageMessages]);
+  const staff = await getOrCreateRole(guild, STAFF_ROLE_NAME, [PermissionFlagsBits.ManageChannels], repair);
+  const customer = await getOrCreateRole(guild, "Customer", [], repair);
+  const developer = await getOrCreateRole(guild, "Developer", [PermissionFlagsBits.ManageMessages], repair);
 
   const info = await getOrCreateCategory(guild, "INFORMATION");
   const orders = await getOrCreateCategory(guild, "ORDERS");
@@ -175,13 +206,13 @@ async function setupGuild(guild) {
 
   const channels = {};
   for (const [name, parent] of publicChannels) {
-    channels[name] = await getOrCreateTextChannel(guild, name, parent);
+    channels[name] = await getOrCreateTextChannel(guild, name, parent, [], repair);
   }
 
-  channels["dashboard"] = await getOrCreateTextChannel(guild, "dashboard", staffCat, staffOnly);
-  channels["orders"] = await getOrCreateTextChannel(guild, "orders", staffCat, staffOnly);
-  channels["logs"] = await getOrCreateTextChannel(guild, "logs", staffCat, staffOnly);
-  channels["staff-chat"] = await getOrCreateTextChannel(guild, "staff-chat", staffCat, staffOnly);
+  channels["dashboard"] = await getOrCreateTextChannel(guild, "dashboard", staffCat, staffOnly, repair);
+  channels["orders"] = await getOrCreateTextChannel(guild, "orders", staffCat, staffOnly, repair);
+  channels["logs"] = await getOrCreateTextChannel(guild, "logs", staffCat, staffOnly, repair);
+  channels["staff-chat"] = await getOrCreateTextChannel(guild, "staff-chat", staffCat, staffOnly, repair);
 
   const orderButton = new ButtonBuilder()
     .setCustomId("bf_create_order")
@@ -216,7 +247,15 @@ async function setupGuild(guild) {
   );
 
   const staticPanels = {
-    welcome: panelEmbed("👋 Welcome to " + SHOP, "Custom Discord bots built to your specifications.\n\nHead to **#order** to request a bot."),
+    welcome: panelEmbed(
+      "👋 𝗪𝗲𝗹𝗰𝗼𝗺𝗲 𝘁𝗼 " + SHOP,
+      "✨ **Custom Discord bots built around your exact idea.**\n\n" +
+      "🛒 **Ready to order?** Head to **#order** and tell us exactly what you need.\n\n" +
+      "🤖 Our system analyzes your requested features and gives you an estimated Robux price.\n" +
+      "💸 Payments are made in Robux to **" + ROBLOX_USERNAME + "**.\n\n" +
+      "━━━━━━━━━━━━━━━━━━━━\n" +
+      "⚡ Fast • 🛠️ Custom • 🤖 Automated"
+    ),
     rules: panelEmbed("📜 Server Rules", "1. No spam or harassment.\n2. Keep orders inside tickets.\n3. Do not impersonate staff.\n4. Give complete and accurate requirements.\n5. Follow Discord and Roblox rules."),
     announcements: panelEmbed("📢 Announcements", "Official " + SHOP + " updates will appear here."),
     pricing: panelEmbed("💰 Pricing", "Prices are estimated from the features and complexity detected in your request. Final pricing can require manual review for unusual requests."),
@@ -373,8 +412,22 @@ client.once("ready", async () => {
   await client.application.commands.set([
     {
       name: "setup",
-      description: "Set up or repair the entire BotForge shop server",
-      default_member_permissions: PermissionFlagsBits.Administrator.toString()
+      description: "Set up or repair the BotForge shop server",
+      default_member_permissions: PermissionFlagsBits.Administrator.toString(),
+      options: [
+        {
+          type: 1,
+          name: "full",
+          description: "Build or verify the complete shop structure",
+          options: []
+        },
+        {
+          type: 1,
+          name: "repair",
+          description: "Repair missing or broken BotForge parts without deleting the server",
+          options: []
+        }
+      ]
     }
   ]);
 });
@@ -385,9 +438,21 @@ client.on("interactionCreate", async interaction => {
       if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) {
         return interaction.reply({ content: "❌ Administrator permission required.", ephemeral: true });
       }
+
+      const mode = interaction.options.getSubcommand(false) || "full";
       await interaction.deferReply({ ephemeral: true });
-      const result = await setupGuild(interaction.guild);
-      return interaction.editReply(`✅ **${SHOP} setup complete!**\n\nCreated/verified **${result.categories} categories**, **${result.channels} channels**, and **${result.roles} roles**.\nAll required panels and messages have been posted.`);
+
+      if (mode === "repair") {
+        const result = await setupGuild(interaction.guild, "repair");
+        return interaction.editReply(
+          `🛠️ **${SHOP} repair complete!**\n\nVerified **${result.categories} categories**, **${result.channels} channels**, and **${result.roles} roles**.\n\n✅ Missing channels/roles are restored\n✅ Broken staff permissions are repaired\n✅ Channels are moved back to the correct categories\n✅ Old panel marker text is removed\n❌ Nothing is deleted or rebuilt from scratch`
+        );
+      }
+
+      const result = await setupGuild(interaction.guild, "full");
+      return interaction.editReply(
+        `✅ **${SHOP} setup complete!**\n\nVerified **${result.categories} categories**, **${result.channels} channels**, and **${result.roles} roles**.\nUse **/setup repair** later when something gets messed up.`
+      );
     }
 
     if (interaction.isButton() && interaction.customId === "bf_create_order") {
