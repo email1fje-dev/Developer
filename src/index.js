@@ -353,6 +353,12 @@ async function setupGuild(guild, mode = "full") {
   await refreshDashboard(guild);
 
   await sendOrReplacePanel(
+    channels.logs,
+    "BOTFORGE_LOGS_PANEL",
+    panelEmbed("📜 Activity Logs", "All important BotForge activity and order actions will be recorded here automatically.")
+  );
+
+  await sendOrReplacePanel(
     channels.orders,
     "BOTFORGE_ORDERS_PANEL",
     panelEmbed("📋 Orders", "Active customer order tickets are listed here through Discord ticket channels.")
