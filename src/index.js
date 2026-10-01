@@ -150,6 +150,9 @@ async function getOrCreateTextChannel(guild, key, parent, overwrites = [], repai
       reason: `${SHOP} setup`
     });
   } else if (repair) {
+    if (channel.name !== name) {
+      await channel.setName(name, `${SHOP} repair: add channel emoji`);
+    }
     if (channel.parentId !== parent.id) {
       await channel.setParent(parent.id, { lockPermissions: false, reason: `${SHOP} repair` });
     }
