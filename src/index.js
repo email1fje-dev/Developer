@@ -76,17 +76,29 @@ function cleanName(value) {
   return value.toLowerCase().replace(/[^a-z0-9-]/g, "-").replace(/-+/g, "-").slice(0, 80);
 }
 
-async function getOrCreateRole(guild, name, permissions = [], repair = false) {
+async function getOrCreateRole(guild, name, permissions = [], repair = false, color = null, hoist = false) {
   let role = guild.roles.cache.find(r => r.name === name);
+
   if (!role) {
     role = await guild.roles.create({
       name,
       permissions,
+      color: color || undefined,
+      hoist,
       reason: `${SHOP} setup`
     });
-  } else if (repair && permissions.length) {
-    await role.setPermissions(permissions, `${SHOP} repair`);
+  } else if (repair) {
+    if (permissions.length) {
+      await role.setPermissions(permissions, `${SHOP} repair`);
+    }
+    const changes = {};
+    if (color && role.hexColor.toLowerCase() !== color.toLowerCase()) changes.color = color;
+    if (role.hoist !== hoist) changes.hoist = hoist;
+    if (Object.keys(changes).length) {
+      await role.edit({ ...changes, reason: `${SHOP} repair` });
+    }
   }
+
   return role;
 }
 
@@ -216,7 +228,7 @@ async function buildDashboardEmbed(guild) {
   const children = category?.children?.cache;
   const orders = children ? children.filter(c => c.type === ChannelType.GuildText && c.name.startsWith("order-")).size : 0;
   const support = children ? children.filter(c => c.type === ChannelType.GuildText && c.name.startsWith("support-")).size : 0;
-  const staffRole = guild.roles.cache.find(r => r.name === STAFF_ROLE_NAME);
+  const staffRole = guild.roles.cache.find(r => r.name === "🔨 " + STAFF_ROLE_NAME || r.name === STAFF_ROLE_NAME);
   const embed = new EmbedBuilder()
     .setTitle("📊 " + SHOP + " • Staff Dashboard")
     .setDescription("Live overview of the shop. Click Refresh for current server data.")
@@ -245,9 +257,62 @@ async function refreshDashboard(guild) {
 async function setupGuild(guild, mode = "full") {
   const repair = mode === "repair";
   const everyone = guild.roles.everyone;
-  const staff = await getOrCreateRole(guild, STAFF_ROLE_NAME, [PermissionFlagsBits.ManageChannels], repair);
-  const customer = await getOrCreateRole(guild, "Customer", [], repair);
-  const developer = await getOrCreateRole(guild, "Developer", [PermissionFlagsBits.ManageMessages], repair);
+
+  const owner = await getOrCreateRole(guild, "👑 Owner", [
+    PermissionFlagsBits.ManageGuild,
+    PermissionFlagsBits.ManageChannels,
+    PermissionFlagsBits.ManageMessages
+  ], repair, "#F1C40F", true);
+
+  const admin = await getOrCreateRole(guild, "🛡️ Admin", [
+    PermissionFlagsBits.ManageGuild,
+    PermissionFlagsBits.ManageChannels,
+    PermissionFlagsBits.ManageMessages,
+    PermissionFlagsBits.KickMembers,
+    PermissionFlagsBits.BanMembers
+  ], repair, "#E74C3C", true);
+
+  const staff = await getOrCreateRole(guild, "🔨 " + STAFF_ROLE_NAME, [
+    PermissionFlagsBits.ManageChannels,
+    PermissionFlagsBits.ManageMessages
+  ], repair, "#3498DB", true);
+
+  const developer = await getOrCreateRole(guild, "💻 Developer", [
+    PermissionFlagsBits.ManageMessages
+  ], repair, "#9B59B6", true);
+
+  const customer = await getOrCreateRole(guild, "🤝 Customer", [], repair, "#2ECC71", false);
+  const member = await getOrCreateRole(guild, "👤 Member", [], repair, "#95A5A6", false);
+  const botRole = await getOrCreateRole(guild, "🤖 Bot", [], repair, "#7289DA", false);
+  const muted = await getOrCreateRole(guild, "🔇 Muted", [], repair, "#7F8C8D", false);
+
+  // Keep managed roles below the bot's own highest role so the bot can maintain them.
+  const botHighest = guild.members.me?.roles?.highest;
+  if (botHighest) {
+    const roleOrder = [owner, admin, staff, developer, customer, member, botRole, muted];
+    for (let i = 0; i < roleOrder.length; i++) {
+      const role = roleOrder[i];
+      if (role && role.position >= botHighest.position) continue;
+      await role.setPosition(Math.max(1, botHighest.position - 1 - i)).catch(() => {});
+    }
+  }
+
+  // Auto-role existing members during setup/repair.
+  for (const [, guildMember] of guild.members.cache) {
+    if (guildMember.user.bot) {
+      if (!guildMember.roles.cache.has(botRole.id)) await guildMember.roles.add(botRole, SHOP + " bot role").catch(() => {});
+    } else if (
+      guildMember.id !== guild.ownerId &&
+      !guildMember.roles.cache.has(owner.id) &&
+      !guildMember.roles.cache.has(admin.id) &&
+      !guildMember.roles.cache.has(staff.id) &&
+      !guildMember.roles.cache.has(developer.id) &&
+      !guildMember.roles.cache.has(customer.id) &&
+      !guildMember.roles.cache.has(member.id)
+    ) {
+      await guildMember.roles.add(member, SHOP + " member auto role").catch(() => {});
+    }
+  }
 
   const info = await getOrCreateCategory(guild, "INFORMATION");
   const orders = await getOrCreateCategory(guild, "ORDERS");
@@ -367,7 +432,7 @@ async function setupGuild(guild, mode = "full") {
   await logEvent(guild, repair ? "🛠️ Setup Repaired" : "⚙️ Shop Setup", repair ? "BotForge repair completed." : "BotForge shop setup completed.");
   await refreshDashboard(guild);
 
-  return { channels: Object.keys(channels).length, roles: [staff, customer, developer].length, categories: 5 };
+  return { channels: Object.keys(channels).length, roles: [owner, admin, staff, developer, customer, member, botRole, muted].length, categories: 5 };
 }
 
 async function askOpenRouter(requirements) {
@@ -442,7 +507,7 @@ function orderControlRow() {
 }
 
 async function createTicket(guild, user, type, details, estimate = null) {
-  const staff = guild.roles.cache.find(r => r.name === STAFF_ROLE_NAME);
+  const staff = guild.roles.cache.find(r => r.name === "🔨 " + STAFF_ROLE_NAME || r.name === STAFF_ROLE_NAME);
   const category = guild.channels.cache.find(c => c.type === ChannelType.GuildCategory && c.name === "ORDERS");
   const channelName = cleanName((type === "order" ? "order" : "support") + "-" + user.username + "-" + Date.now().toString().slice(-5));
 
@@ -537,6 +602,21 @@ async function createTicket(guild, user, type, details, estimate = null) {
 
   return channel;
 }
+
+client.on("guildMemberAdd", async member => {
+  try {
+    const roleName = member.user.bot ? "🤖 Bot" : "👤 Member";
+    const role = member.guild.roles.cache.find(r => r.name === roleName);
+    if (role) await member.roles.add(role, SHOP + " auto role");
+    await logEvent(
+      member.guild,
+      member.user.bot ? "🤖 Bot Joined" : "👤 Member Joined",
+      `<@${member.id}> joined the server and received the **${roleName}** role.`
+    );
+  } catch (error) {
+    console.error("Auto-role error:", error);
+  }
+});
 
 client.once("ready", async () => {
   console.log(`Logged in as ${client.user.tag}`);
