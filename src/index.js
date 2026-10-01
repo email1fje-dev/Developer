@@ -104,14 +104,40 @@ async function getOrCreateCategory(guild, name) {
   return category;
 }
 
-async function getOrCreateTextChannel(guild, name, parent, overwrites = [], repair = false) {
+const CHANNEL_NAMES = {
+  welcome: "👋・welcome",
+  rules: "📜・rules",
+  announcements: "📢・announcements",
+  pricing: "💰・pricing",
+  services: "🛠️・services",
+  reviews: "⭐・reviews",
+  faq: "❓・faq",
+  order: "🛒・order",
+  "order-status": "📋・order-status",
+  chat: "💬・chat",
+  "bot-showcase": "🤖・bot-showcase",
+  media: "🖼️・media",
+  suggestions: "💡・suggestions",
+  support: "🎫・support",
+  "bug-report": "🐛・bug-report",
+  dashboard: "📊・dashboard",
+  orders: "📦・orders",
+  logs: "📜・logs",
+  "staff-chat": "💬・staff-chat"
+};
+
+async function getOrCreateTextChannel(guild, key, parent, overwrites = [], repair = false) {
+  const name = CHANNEL_NAMES[key] || key;
+  const legacyName = key;
+
   let channel = guild.channels.cache.find(
     c => c.type === ChannelType.GuildText && c.name === name && c.parentId === parent.id
   );
 
   if (!channel && repair) {
     channel = guild.channels.cache.find(
-      c => c.type === ChannelType.GuildText && c.name === name
+      c => c.type === ChannelType.GuildText &&
+        (c.name === legacyName || c.name === name)
     );
   }
 
@@ -250,7 +276,7 @@ async function setupGuild(guild, mode = "full") {
     welcome: panelEmbed(
       "👋 𝗪𝗲𝗹𝗰𝗼𝗺𝗲 𝘁𝗼 " + SHOP,
       "✨ **Custom Discord bots built around your exact idea.**\n\n" +
-      "🛒 **Ready to order?** Head to **#order** and tell us exactly what you need.\n\n" +
+      "🛒 **Ready to order?** Head to <#" + channels.order.id + "> and tell us exactly what you need.\n\n" +
       "🤖 Our system analyzes your requested features and gives you an estimated Robux price.\n" +
       "💸 Payments are made in Robux to **" + ROBLOX_USERNAME + "**.\n\n" +
       "━━━━━━━━━━━━━━━━━━━━\n" +
@@ -344,6 +370,22 @@ function calculatePrice(features) {
   return features.reduce((sum, feature) => sum + (PRICE_MAP[feature] || 0), 0);
 }
 
+function isStaffMember(interaction) {
+  if (!interaction.guild || !interaction.memberPermissions) return false;
+  if (interaction.memberPermissions.has(PermissionFlagsBits.Administrator)) return true;
+  return interaction.member?.roles?.cache?.some(r => r.name === STAFF_ROLE_NAME) || interaction.guild.ownerId === interaction.user.id;
+}
+
+function orderControlRow() {
+  return new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId("bf_order_claim").setLabel("Claim").setEmoji("🙋").setStyle(ButtonStyle.Primary),
+    new ButtonBuilder().setCustomId("bf_order_paid").setLabel("Mark Paid").setEmoji("💸").setStyle(ButtonStyle.Success),
+    new ButtonBuilder().setCustomId("bf_order_progress").setLabel("In Progress").setEmoji("🔨").setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId("bf_order_complete").setLabel("Completed").setEmoji("✅").setStyle(ButtonStyle.Success),
+    new ButtonBuilder().setCustomId("bf_close_ticket").setLabel("Close").setEmoji("🔒").setStyle(ButtonStyle.Danger)
+  );
+}
+
 async function createTicket(guild, user, type, details, estimate = null) {
   const staff = guild.roles.cache.find(r => r.name === STAFF_ROLE_NAME);
   const category = guild.channels.cache.find(c => c.type === ChannelType.GuildCategory && c.name === "ORDERS");
@@ -370,12 +412,6 @@ async function createTicket(guild, user, type, details, estimate = null) {
     reason: SHOP + " ticket"
   });
 
-  const close = new ButtonBuilder()
-    .setCustomId("bf_close_ticket")
-    .setLabel("Close Ticket")
-    .setEmoji("🔒")
-    .setStyle(ButtonStyle.Danger);
-
   const embed = new EmbedBuilder()
     .setTitle(type === "order" ? "📦 New Bot Order" : "🎫 Support Ticket")
     .setDescription(details)
@@ -398,11 +434,48 @@ async function createTicket(guild, user, type, details, estimate = null) {
     );
   }
 
-  await channel.send({
+  const ticketMessage = await channel.send({
     content: `<@${user.id}>${staff ? " <@&" + staff.id + ">" : ""}`,
     embeds: [embed],
-    components: [new ActionRowBuilder().addComponents(close)]
+    components: [type === "order" ? orderControlRow() : new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId("bf_close_ticket").setLabel("Close").setEmoji("🔒").setStyle(ButtonStyle.Danger)
+    )]
   });
+
+  if (type === "order") {
+    const staffOrders = guild.channels.cache.find(
+      c => c.type === ChannelType.GuildText &&
+        (c.name === CHANNEL_NAMES.orders || c.name === "orders")
+    );
+
+    if (staffOrders) {
+      const staffEmbed = new EmbedBuilder()
+        .setTitle("🆕 New Bot Order")
+        .setDescription(`A new order has been created for <#${channel.id}>.`)
+        .addFields(
+          { name: "Customer", value: `<@${user.id}>`, inline: true },
+          { name: "Price", value: estimate?.manual_review ? "⚠️ Manual review" : `💰 ${estimate?.price ?? 0} Robux`, inline: true },
+          { name: "Payment", value: `Send Robux to **${ROBLOX_USERNAME}**`, inline: true },
+          { name: "Status", value: "🟡 Waiting for confirmation", inline: false }
+        )
+        .setFooter({ text: `${SHOP} • Staff Orders` })
+        .setTimestamp();
+
+      await staffOrders.send({
+        content: staff ? `<@&${staff.id}>` : undefined,
+        embeds: [staffEmbed],
+        components: [
+          new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+              .setLabel("Open Order")
+              .setEmoji("📂")
+              .setStyle(ButtonStyle.Link)
+              .setURL(`https://discord.com/channels/${guild.id}/${channel.id}`)
+          )
+        ]
+      });
+    }
+  }
 
   return channel;
 }
@@ -488,7 +561,51 @@ client.on("interactionCreate", async interaction => {
       return interaction.editReply(`🎫 Support ticket created: <#${channel.id}>`);
     }
 
+    if (interaction.isButton() && [
+      "bf_order_claim",
+      "bf_order_paid",
+      "bf_order_progress",
+      "bf_order_complete"
+    ].includes(interaction.customId)) {
+      if (!isStaffMember(interaction)) {
+        return interaction.reply({ content: "❌ Staff only.", ephemeral: true });
+      }
+
+      const current = interaction.message.embeds?.[0];
+      if (!current) return interaction.reply({ content: "❌ Order panel not found.", ephemeral: true });
+
+      const embed = EmbedBuilder.from(current);
+      const statusMap = {
+        bf_order_paid: "💸 Paid (manually marked)",
+        bf_order_progress: "🔨 In Progress",
+        bf_order_complete: "✅ Completed"
+      };
+
+      if (interaction.customId === "bf_order_claim") {
+        const fields = embed.data.fields || [];
+        const index = fields.findIndex(f => f.name === "Claimed By");
+        const value = `<@${interaction.user.id}>`;
+        if (index >= 0) fields[index].value = value;
+        else fields.push({ name: "Claimed By", value, inline: true });
+        embed.setFields(fields);
+        await interaction.update({ embeds: [embed], components: [orderControlRow()] });
+        return;
+      }
+
+      const fields = embed.data.fields || [];
+      const index = fields.findIndex(f => f.name === "Status");
+      const value = statusMap[interaction.customId];
+      if (index >= 0) fields[index].value = value;
+      else fields.push({ name: "Status", value, inline: true });
+      embed.setFields(fields);
+      await interaction.update({ embeds: [embed], components: [orderControlRow()] });
+      return;
+    }
+
     if (interaction.isButton() && interaction.customId === "bf_close_ticket") {
+      if (!isStaffMember(interaction)) {
+        return interaction.reply({ content: "❌ Staff only.", ephemeral: true });
+      }
       if (!interaction.channel) return;
       await interaction.reply({ content: "🔒 Closing ticket in 3 seconds..." });
       setTimeout(() => interaction.channel.delete("Ticket closed").catch(() => {}), 3000);
