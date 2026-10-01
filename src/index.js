@@ -19,6 +19,7 @@ const {
 const SHOP = process.env.SHOP_NAME || "BotForge";
 const STAFF_ROLE_NAME = process.env.STAFF_ROLE_NAME || "Staff";
 const MODEL = process.env.OPENROUTER_MODEL || "openai/gpt-oss-20b";
+const ROBLOX_USERNAME = "psk062";
 
 const client = new Client({
   intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers],
@@ -353,7 +354,8 @@ async function createTicket(guild, user, type, details, estimate = null) {
     embed.addFields(
       { name: "Detected Features", value: featureText.slice(0, 1024) },
       { name: "Estimated Price", value: estimate.manual_review ? "⚠️ Manual review required" : `💰 ${estimate.price} Robux`, inline: true },
-      { name: "Complexity", value: estimate.complexity || "unknown", inline: true }
+      { name: "Complexity", value: estimate.complexity || "unknown", inline: true },
+      { name: "💸 Robux Payment", value: `Send the Robux to **${ROBLOX_USERNAME}** on Roblox.`, inline: false }
     );
   }
 
@@ -451,7 +453,7 @@ client.on("interactionCreate", async interaction => {
 
       const summary = estimate.manual_review
         ? "⚠️ Your request needs manual pricing."
-        : `💰 Estimated price: **${price} Robux**`;
+        : `💰 Estimated price: **${price} Robux**\n💸 Pay Robux to **${ROBLOX_USERNAME}** on Roblox.`;
 
       return interaction.editReply(`✅ Order created: <#${channel.id}>\n${summary}`);
     }
