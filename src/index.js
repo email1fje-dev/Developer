@@ -195,6 +195,53 @@ async function sendOrReplacePanel(channel, marker, embed, components = []) {
   return channel.send({ content: "", embeds: [embed], components });
 }
 
+function findShopChannel(guild, key) {
+  const wanted = CHANNEL_NAMES[key] || key;
+  return guild.channels.cache.find(c => c.type === ChannelType.GuildText && (c.name === wanted || c.name === key));
+}
+
+async function logEvent(guild, title, description) {
+  const channel = findShopChannel(guild, "logs");
+  if (!channel) return;
+  const embed = new EmbedBuilder()
+    .setTitle(title)
+    .setDescription(description)
+    .setFooter({ text: SHOP + " • Audit Log" })
+    .setTimestamp();
+  await channel.send({ embeds: [embed] }).catch(() => {});
+}
+
+async function buildDashboardEmbed(guild) {
+  const category = guild.channels.cache.find(c => c.type === ChannelType.GuildCategory && c.name === "ORDERS");
+  const children = category?.children?.cache;
+  const orders = children ? children.filter(c => c.type === ChannelType.GuildText && c.name.startsWith("order-")).size : 0;
+  const support = children ? children.filter(c => c.type === ChannelType.GuildText && c.name.startsWith("support-")).size : 0;
+  const staffRole = guild.roles.cache.find(r => r.name === STAFF_ROLE_NAME);
+  const embed = new EmbedBuilder()
+    .setTitle("📊 " + SHOP + " • Staff Dashboard")
+    .setDescription("Live overview of the shop. Click Refresh for current server data.")
+    .addFields(
+      { name: "📦 Active Orders", value: String(orders), inline: true },
+      { name: "🎫 Support Tickets", value: String(support), inline: true },
+      { name: "👥 Members", value: String(guild.memberCount), inline: true },
+      { name: "🛡️ Staff", value: String(staffRole?.members?.size ?? 0), inline: true },
+      { name: "📁 Categories", value: String(guild.channels.cache.filter(c => c.type === ChannelType.GuildCategory).size), inline: true },
+      { name: "💬 Text Channels", value: String(guild.channels.cache.filter(c => c.type === ChannelType.GuildText).size), inline: true },
+      { name: "⚡ Staff Tools", value: "📦 Orders → incoming orders\n📜 Logs → bot activity\n🔄 Refresh → update this dashboard" }
+    )
+    .setFooter({ text: SHOP + " • Live Dashboard" })
+    .setTimestamp();
+  if (client.user) embed.setThumbnail(client.user.displayAvatarURL({ extension: "png", size: 256 }));
+  return embed;
+}
+
+async function refreshDashboard(guild) {
+  const channel = findShopChannel(guild, "dashboard");
+  if (!channel) return;
+  const button = new ButtonBuilder().setCustomId("bf_dashboard_refresh").setLabel("Refresh").setEmoji("🔄").setStyle(ButtonStyle.Primary);
+  await sendOrReplacePanel(channel, "BOTFORGE_DASHBOARD_PANEL", await buildDashboardEmbed(guild), [new ActionRowBuilder().addComponents(button)]);
+}
+
 async function setupGuild(guild, mode = "full") {
   const repair = mode === "repair";
   const everyone = guild.roles.everyone;
@@ -303,17 +350,16 @@ async function setupGuild(guild, mode = "full") {
     await sendOrReplacePanel(channels[name], "BOTFORGE_" + name.toUpperCase() + "_PANEL", embed);
   }
 
-  await sendOrReplacePanel(
-    channels.dashboard,
-    "BOTFORGE_DASHBOARD_PANEL",
-    panelEmbed("📊 Staff Dashboard", "Use order tickets to manage customer requests. Staff-only tools will appear here as the shop grows.")
-  );
+  await refreshDashboard(guild);
 
   await sendOrReplacePanel(
     channels.orders,
     "BOTFORGE_ORDERS_PANEL",
     panelEmbed("📋 Orders", "Active customer order tickets are listed here through Discord ticket channels.")
   );
+
+  await logEvent(guild, repair ? "🛠️ Setup Repaired" : "⚙️ Shop Setup", repair ? "BotForge repair completed." : "BotForge shop setup completed.");
+  await refreshDashboard(guild);
 
   return { channels: Object.keys(channels).length, roles: [staff, customer, developer].length, categories: 5 };
 }
@@ -446,6 +492,9 @@ async function createTicket(guild, user, type, details, estimate = null) {
   });
 
   if (type === "order") {
+    await logEvent(guild, "🆕 New Order", "<@" + user.id + "> created order <#" + channel.id + ">. Estimated price: **" + (estimate?.manual_review ? "Manual review" : (estimate?.price ?? 0) + " Robux") + "**.");
+    await refreshDashboard(guild);
+
     const staffOrders = guild.channels.cache.find(
       c => c.type === ChannelType.GuildText &&
         (c.name === CHANNEL_NAMES.orders || c.name === "orders")
@@ -564,6 +613,17 @@ client.on("interactionCreate", async interaction => {
       return interaction.editReply(`🎫 Support ticket created: <#${channel.id}>`);
     }
 
+    if (interaction.isButton() && interaction.customId === "bf_dashboard_refresh") {
+      if (!isStaffMember(interaction)) return interaction.reply({ content: "❌ Staff only.", ephemeral: true });
+      await interaction.update({
+        embeds: [await buildDashboardEmbed(interaction.guild)],
+        components: [new ActionRowBuilder().addComponents(
+          new ButtonBuilder().setCustomId("bf_dashboard_refresh").setLabel("Refresh").setEmoji("🔄").setStyle(ButtonStyle.Primary)
+        )]
+      });
+      return;
+    }
+
     if (interaction.isButton() && [
       "bf_order_claim",
       "bf_order_paid",
@@ -592,6 +652,8 @@ client.on("interactionCreate", async interaction => {
         else fields.push({ name: "Claimed By", value, inline: true });
         embed.setFields(fields);
         await interaction.update({ embeds: [embed], components: [orderControlRow()] });
+        await logEvent(interaction.guild, "🙋 Order Claimed", "Order <#" + interaction.channelId + "> was claimed by <@" + interaction.user.id + ">.");
+        await refreshDashboard(interaction.guild);
         return;
       }
 
@@ -602,6 +664,8 @@ client.on("interactionCreate", async interaction => {
       else fields.push({ name: "Status", value, inline: true });
       embed.setFields(fields);
       await interaction.update({ embeds: [embed], components: [orderControlRow()] });
+      await logEvent(interaction.guild, "📦 Order Status Updated", "Order <#" + interaction.channelId + "> changed to **" + value + "** by <@" + interaction.user.id + ">.");
+      await refreshDashboard(interaction.guild);
       return;
     }
 
@@ -611,7 +675,11 @@ client.on("interactionCreate", async interaction => {
       }
       if (!interaction.channel) return;
       await interaction.reply({ content: "🔒 Closing ticket in 3 seconds..." });
-      setTimeout(() => interaction.channel.delete("Ticket closed").catch(() => {}), 3000);
+      await logEvent(interaction.guild, "🔒 Ticket Closed", "Ticket <#" + interaction.channelId + "> was closed by <@" + interaction.user.id + ">.");
+      setTimeout(async () => {
+        await interaction.channel.delete("Ticket closed").catch(() => {});
+        await refreshDashboard(interaction.guild);
+      }, 3000);
       return;
     }
 
