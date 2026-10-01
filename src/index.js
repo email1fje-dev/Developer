@@ -286,6 +286,51 @@ async function refreshDashboard(guild) {
   await sendOrReplacePanel(channel, "BOTFORGE_DASHBOARD_PANEL", await buildDashboardEmbed(guild), [new ActionRowBuilder().addComponents(button)]);
 }
 
+function channelPermissionOverwrites(guild, key, roles) {
+  const everyone = guild.roles.everyone.id;
+  const staff = roles.staff.id;
+  const admin = roles.admin.id;
+  const developer = roles.developer.id;
+
+  const readOnly = new Set([
+    "welcome","rules","announcements","pricing","services","reviews","faq","about","how-to-order","payments",
+    "order-status","order-queue","completed-orders",
+    "events","polls","partnerships",
+    "downloads","templates","documentation","examples","portfolio",
+    "staff-announcements","release-notes"
+  ]);
+
+  const noThreads = new Set([
+    "welcome","rules","announcements","pricing","services","reviews","faq","about","how-to-order","payments",
+    "order-status","order-queue","completed-orders","order-feedback",
+    "bot-showcase","media","suggestions","polls","events","partnerships",
+    "support","bug-report","technical-help","billing-help","client-help",
+    "downloads","templates","documentation","examples","portfolio",
+    "dashboard","orders","logs","staff-announcements","staff-tasks","staff-reviews",
+    "dev-chat","feature-lab","code-review","api-lab","release-notes"
+  ]);
+
+  const denyThreads = noThreads.has(key)
+    ? [PermissionFlagsBits.CreatePublicThreads, PermissionFlagsBits.CreatePrivateThreads, PermissionFlagsBits.SendMessagesInThreads]
+    : [];
+
+  const base = [
+    { id: everyone, deny: denyThreads }
+  ];
+
+  if (readOnly.has(key)) {
+    base[0].deny.push(PermissionFlagsBits.SendMessages);
+    base.push({ id: staff, allow: [PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory] });
+    base.push({ id: admin, allow: [PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory] });
+    base.push({ id: developer, allow: [PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory] });
+  } else if (["chat","off-topic","bot-showcase","media","suggestions","order-feedback","technical-help","client-help"].includes(key)) {
+    base[0].allow = [PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory];
+    base[0].deny = denyThreads;
+  }
+
+  return base;
+}
+
 async function setupGuild(guild, mode = "full") {
   const repair = mode === "repair";
   const everyone = guild.roles.everyone;
@@ -403,8 +448,15 @@ async function setupGuild(guild, mode = "full") {
   ];
 
   const channels = {};
+  const roleRefs = { staff, admin, developer };
   for (const [name, parent] of publicChannels) {
-    channels[name] = await getOrCreateTextChannel(guild, name, parent, [], repair);
+    channels[name] = await getOrCreateTextChannel(
+      guild,
+      name,
+      parent,
+      channelPermissionOverwrites(guild, name, roleRefs),
+      repair
+    );
   }
 
   const staffChannels = [
@@ -418,13 +470,19 @@ async function setupGuild(guild, mode = "full") {
   ];
 
   for (const key of staffChannels) {
-    channels[key] = await getOrCreateTextChannel(guild, key, staffCat, staffOnly, repair);
+    channels[key] = await getOrCreateTextChannel(guild, key, staffCat, staffOnly.map(x => ({
+      ...x,
+      deny: [...(x.deny || []), PermissionFlagsBits.CreatePublicThreads, PermissionFlagsBits.CreatePrivateThreads, PermissionFlagsBits.SendMessagesInThreads]
+    })), repair);
   }
 
   const developmentChannels = ["dev-chat", "feature-lab", "code-review", "api-lab", "release-notes"];
   const developmentStaffOnly = staffOnly;
   for (const key of developmentChannels) {
-    channels[key] = await getOrCreateTextChannel(guild, key, development, developmentStaffOnly, repair);
+    channels[key] = await getOrCreateTextChannel(guild, key, development, developmentStaffOnly.map(x => ({
+      ...x,
+      deny: [...(x.deny || []), PermissionFlagsBits.CreatePublicThreads, PermissionFlagsBits.CreatePrivateThreads, PermissionFlagsBits.SendMessagesInThreads]
+    })), repair);
   }
 
   const orderButton = new ButtonBuilder()
