@@ -604,7 +604,7 @@ function calculatePrice(features) {
 function isStaffMember(interaction) {
   if (!interaction.guild || !interaction.memberPermissions) return false;
   if (interaction.memberPermissions.has(PermissionFlagsBits.Administrator)) return true;
-  return interaction.member?.roles?.cache?.some(r => r.name === STAFF_ROLE_NAME) || interaction.guild.ownerId === interaction.user.id;
+  return interaction.member?.roles?.cache?.some(r => r.name === "🔨 " + STAFF_ROLE_NAME || r.name === STAFF_ROLE_NAME) || interaction.guild.ownerId === interaction.user.id;
 }
 
 function orderControlRow() {
