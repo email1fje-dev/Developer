@@ -623,7 +623,7 @@ Return:
   "manual_review": true|false,
   "reason": "short reason"
 }
-Only include features clearly requested or strongly implied. If a feature is unknown or cannot be safely mapped, set manual_review=true. Do not invent features.
+Only include features clearly requested or strongly implied. If a feature is unknown or cannot be safely mapped, set manual_review=true. Do not invent features. If the request is empty, vague, nonsense, or explicitly says things like "nothing", "idk", or gives no actual bot requirements, return features=[] and manual_review=true.
 Customer request:
 ${requirements}`;
 
@@ -951,6 +951,12 @@ client.on("interactionCreate", async interaction => {
       } catch (error) {
         console.error(error);
         analysis = { features: [], complexity: "manual", manual_review: true, reason: "AI analysis failed." };
+      }
+
+      if (!Array.isArray(analysis.features) || analysis.features.length === 0) {
+        analysis.features = [];
+        analysis.manual_review = true;
+        analysis.reason = analysis.reason || "No billable bot features were detected.";
       }
 
       const price = calculatePrice(analysis.features);
