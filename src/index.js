@@ -124,18 +124,50 @@ const CHANNEL_NAMES = {
   services: "🛠️・services",
   reviews: "⭐・reviews",
   faq: "❓・faq",
+  about: "🏪・about-us",
+  "how-to-order": "🛒・how-to-order",
+  payments: "💸・payment-info",
+
   order: "🛒・order",
   "order-status": "📋・order-status",
+  "order-queue": "⏳・order-queue",
+  "completed-orders": "✅・completed-orders",
+  "order-feedback": "⭐・order-feedback",
+
   chat: "💬・chat",
   "bot-showcase": "🤖・bot-showcase",
   media: "🖼️・media",
   suggestions: "💡・suggestions",
+  polls: "📊・polls",
+  events: "🎉・events",
+  partnerships: "🤝・partnerships",
+  "off-topic": "🗯️・off-topic",
+
   support: "🎫・support",
   "bug-report": "🐛・bug-report",
+  "technical-help": "🔧・technical-help",
+  "billing-help": "💳・billing-help",
+  "client-help": "🙋・client-help",
+
   dashboard: "📊・dashboard",
   orders: "📦・orders",
   logs: "📜・logs",
-  "staff-chat": "💬・staff-chat"
+  "staff-chat": "💬・staff-chat",
+  "staff-announcements": "📢・staff-announcements",
+  "staff-tasks": "📝・staff-tasks",
+  "staff-reviews": "🔎・staff-reviews",
+
+  "dev-chat": "💻・dev-chat",
+  "feature-lab": "🧪・feature-lab",
+  "code-review": "🔍・code-review",
+  "api-lab": "🔌・api-lab",
+  "release-notes": "🚀・release-notes",
+
+  downloads: "📥・downloads",
+  templates: "📄・templates",
+  documentation: "📚・documentation",
+  examples: "🧩・examples",
+  portfolio: "🖥️・portfolio"
 };
 
 async function getOrCreateTextChannel(guild, key, parent, overwrites = [], repair = false) {
@@ -314,11 +346,13 @@ async function setupGuild(guild, mode = "full") {
     }
   }
 
-  const info = await getOrCreateCategory(guild, "INFORMATION");
-  const orders = await getOrCreateCategory(guild, "ORDERS");
-  const community = await getOrCreateCategory(guild, "COMMUNITY");
-  const support = await getOrCreateCategory(guild, "SUPPORT");
-  const staffCat = await getOrCreateCategory(guild, "STAFF");
+  const info = await getOrCreateCategory(guild, "📌 INFORMATION");
+  const orders = await getOrCreateCategory(guild, "🛒 ORDERS");
+  const community = await getOrCreateCategory(guild, "🌐 COMMUNITY");
+  const support = await getOrCreateCategory(guild, "🎫 SUPPORT");
+  const staffCat = await getOrCreateCategory(guild, "🔒 STAFF");
+  const development = await getOrCreateCategory(guild, "💻 DEVELOPMENT");
+  const resources = await getOrCreateCategory(guild, "📚 RESOURCES");
 
   const staffOnly = [
     { id: everyone.id, deny: [PermissionFlagsBits.ViewChannel] },
@@ -336,14 +370,36 @@ async function setupGuild(guild, mode = "full") {
     ["services", info],
     ["reviews", info],
     ["faq", info],
+    ["about", info],
+    ["how-to-order", info],
+    ["payments", info],
+
     ["order", orders],
     ["order-status", orders],
+    ["order-queue", orders],
+    ["completed-orders", orders],
+    ["order-feedback", orders],
+
     ["chat", community],
     ["bot-showcase", community],
     ["media", community],
     ["suggestions", community],
+    ["polls", community],
+    ["events", community],
+    ["partnerships", community],
+    ["off-topic", community],
+
     ["support", support],
-    ["bug-report", support]
+    ["bug-report", support],
+    ["technical-help", support],
+    ["billing-help", support],
+    ["client-help", support],
+
+    ["downloads", resources],
+    ["templates", resources],
+    ["documentation", resources],
+    ["examples", resources],
+    ["portfolio", resources]
   ];
 
   const channels = {};
@@ -351,10 +407,25 @@ async function setupGuild(guild, mode = "full") {
     channels[name] = await getOrCreateTextChannel(guild, name, parent, [], repair);
   }
 
-  channels["dashboard"] = await getOrCreateTextChannel(guild, "dashboard", staffCat, staffOnly, repair);
-  channels["orders"] = await getOrCreateTextChannel(guild, "orders", staffCat, staffOnly, repair);
-  channels["logs"] = await getOrCreateTextChannel(guild, "logs", staffCat, staffOnly, repair);
-  channels["staff-chat"] = await getOrCreateTextChannel(guild, "staff-chat", staffCat, staffOnly, repair);
+  const staffChannels = [
+    "dashboard",
+    "orders",
+    "logs",
+    "staff-chat",
+    "staff-announcements",
+    "staff-tasks",
+    "staff-reviews"
+  ];
+
+  for (const key of staffChannels) {
+    channels[key] = await getOrCreateTextChannel(guild, key, staffCat, staffOnly, repair);
+  }
+
+  const developmentChannels = ["dev-chat", "feature-lab", "code-review", "api-lab", "release-notes"];
+  const developmentStaffOnly = staffOnly;
+  for (const key of developmentChannels) {
+    channels[key] = await getOrCreateTextChannel(guild, key, development, developmentStaffOnly, repair);
+  }
 
   const orderButton = new ButtonBuilder()
     .setCustomId("bf_create_order")
@@ -433,7 +504,7 @@ async function setupGuild(guild, mode = "full") {
   await logEvent(guild, repair ? "🛠️ Setup Repaired" : "⚙️ Shop Setup", repair ? "BotForge repair completed." : "BotForge shop setup completed.");
   await refreshDashboard(guild);
 
-  return { channels: Object.keys(channels).length, roles: [owner, admin, staff, developer, customer, member, botRole, muted].length, categories: 5 };
+  return { channels: Object.keys(channels).length, roles: [owner, admin, staff, developer, customer, member, botRole, muted].length, categories: 7 };
 }
 
 async function askOpenRouter(requirements) {
